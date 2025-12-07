@@ -1,44 +1,55 @@
 from typing import Dict, Set
+from logging import getLogger
+
 from fastapi import WebSocket
 
-from app.core import redis_client
+from app.core.redis import redis_client
+
+logger = getLogger(__name__)
 
 
-class RoomManager:
+class ConversationManager:
     def __init__(self):
-        self.rooms: Dict[str, Set[WebSocket]] = {}
+        self.conversations: Dict[str, Set[WebSocket]] = {}
 
-    def create_room(self, room: str):
-        if room not in self.rooms:
-            self.rooms[room] = set()
+    def create_conversation(self, conversation_id: str):
+        if conversation_id not in self.conversations:
+            self.conversations[conversation_id] = set()
 
-    async def join_room(self, room: str, websocket: WebSocket):
-        self.create_room(room)
-        self.rooms[room].add(websocket)
+    async def join_conversation(
+        self, conversation_id: str, websocket: WebSocket
+    ):
+        self.create_conversation(conversation_id)
+        self.conversations[conversation_id].add(websocket)
         await websocket.accept()
 
-    async def leave_room(self, room: str, websocket: WebSocket):
-        if room in self.rooms and websocket in self.rooms[room]:
-            self.rooms[room].remove(websocket)
+    async def leave_conversation(
+        self, conversation_id: str, websocket: WebSocket
+    ):
+        if (
+            conversation_id in self.conversations
+            and websocket in self.conversations[conversation_id]
+        ):
+            self.conversations[conversation_id].remove(websocket)
 
-    async def broadcast(self, room: str, message: str):
-        if room not in self.rooms:
+    async def broadcast(self, conversation_id: str, message: str):
+        if conversation_id not in self.conversations:
             return
         dead_connections = set()
-        for connection in self.rooms[room]:
+        for connection in self.conversations[conversation_id]:
             try:
                 await connection.send_text(message)
-            except Exception:
+            except Exception as e:
+                logger.error(f"Error sending message: {e}")
                 dead_connections.add(connection)
         for connection in dead_connections:
-            self.rooms[room].remove(connection)
+            self.conversations[conversation_id].remove(connection)
 
-    async def publish(self, room: str, message: str):
-        print("Publishing to Redis:", room, message)
-        subscribers = await redis_client.publish(f"room:{room}", message)
-        print("Redis subscribers count:", subscribers)
+    async def publish(self, conversation_id: str, message: str):
+        logger.info(f"Publishing to Redis: {conversation_id}, {message}")
+        await redis_client.publish(f"conversation:{conversation_id}", message)
 
     async def disconnect(self, websocket: WebSocket):
-        for room in self.rooms.values():
-            if websocket in room:
-                room.remove(websocket)
+        for conversation in self.conversations.values():
+            if websocket in conversation:
+                conversation.remove(websocket)

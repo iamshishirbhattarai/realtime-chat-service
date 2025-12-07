@@ -1,37 +1,47 @@
 import asyncio
+from logging import getLogger
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
-from app.api.ws.rooms import RoomManager
+from app.api.ws.rooms import ConversationManager
 from app.core.redis import get_pubsub
 
-room_manager = RoomManager()
+logger = getLogger(__name__)
+room_manager = ConversationManager()
 router = APIRouter()
 
 
-@router.websocket("/ws/{room_name}")
-async def websocket_endpoint(websocket: WebSocket, room_name: str):
-    await room_manager.join_room(room_name, websocket)
+@router.websocket("/ws/{conversation_id}")
+async def websocket_endpoint(websocket: WebSocket, conversation_id: str):
+    await room_manager.join_room(conversation_id, websocket)
     try:
         while True:
             data = await websocket.receive_text()
-            await room_manager.publish(room_name, data)
+            await room_manager.publish(conversation_id, data)
     except WebSocketDisconnect:
-        await room_manager.leave_room(room_name, websocket)
+        await room_manager.leave_room(conversation_id, websocket)
 
 
 async def pubsub_listener():
     pubsub = get_pubsub()
-    await pubsub.psubscribe("room:*")
-    print("PubSub listener started")
+    try:
+        await pubsub.psubscribe("conversation:*")
+        print("PubSub listener started")
 
-    while True:
-        message = await pubsub.get_message(ignore_subscribe_messages=True)
-        if message:
-            print("Redis message:", message)  # debug log
-            channel = message["channel"]
-            data = message["data"]
-            room = channel.replace("room:", "")
-            await room_manager.broadcast(room, data)
+        while True:
+            message = await pubsub.get_message(ignore_subscribe_messages=True)
+            if message:
+                print("Redis message:", message)  # debug log
+                channel = message["channel"]
+                data = message["data"]
+                conversation_id = channel.replace("conversation:", "")
+                await room_manager.broadcast(conversation_id, data)
 
-        await asyncio.sleep(0.01)
+            await asyncio.sleep(0.01)
+    except asyncio.CancelledError:
+        logger.info("PubSub listener shutting down...")
+        await pubsub.close()
+        raise
+    except Exception as e:
+        logger.error(f"PubSub listener error: {e}")
+        raise

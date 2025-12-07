@@ -1,6 +1,10 @@
-from redis.asyncio import Redis
+import redis.asyncio as redis
 
-redis_client = Redis(host="localhost", port=6379, decode_responses=True)
+from app.core.config import settings
+
+redis_client = redis.from_url(
+    settings.REDIS_URL, decode_responses=True, max_connections=10
+)
 
 
 def get_pubsub():
