@@ -35,8 +35,9 @@ class ConversationManager:
     async def broadcast(self, conversation_id: str, message: str):
         if conversation_id not in self.conversations:
             return
+        connection_snapshot = list(self.conversations[conversation_id])
         dead_connections = set()
-        for connection in self.conversations[conversation_id]:
+        for connection in connection_snapshot:
             try:
                 await connection.send_text(message)
             except Exception as e:
