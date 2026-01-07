@@ -1,11 +1,16 @@
 import pytest
 
-@pytest.fixture(scope='session')
-def db_connection():
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import sessionmaker
-    engine = create_engine('postgresql+asyncpg://user:password@localhost/dbname')
-    Session = sessionmaker(bind=engine)
-    session = Session()
-    yield session
-    session.close()
+
+@pytest.fixture(scope="session")
+async def db_connection():
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+
+    engine = create_async_engine(
+        "postgresql+asyncpg://user:password@localhost/dbname"
+    )
+    Session = async_sessionmaker(bind=engine, expire_on_commit=False)
+
+    async with Session() as session:
+        yield session
+
+    await engine.dispose()

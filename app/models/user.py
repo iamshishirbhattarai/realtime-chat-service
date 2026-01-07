@@ -2,7 +2,7 @@ from uuid import uuid4
 
 from datetime import datetime, timezone
 
-from sqlalchemy import Column, String, UUID as SQLAlchemyUUID
+from sqlalchemy import Column, String, UUID as SQLAlchemyUUID, DateTime
 from sqlalchemy.orm import declarative_base
 
 
@@ -16,7 +16,7 @@ class User(Base):
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     created_at = Column(
-        String,
-        default=lambda: datetime.now(timezone.utc).isoformat(),
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
