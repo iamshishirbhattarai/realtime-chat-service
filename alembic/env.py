@@ -17,6 +17,7 @@ sys.path.insert(
 
 from app.db.base import Base  # noqa: E402
 from app.models.user import User  # noqa: E402
+from app.models.conversation import Conversation  # noqa: E402
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

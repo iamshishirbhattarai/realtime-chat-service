@@ -1,8 +1,8 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
-from app.api.ws.websocket import router as ws_router
 from app.core.pubsub import init_pubsub, shutdown_pubsub
+from app.api.router import router as api_router
 
 
 @asynccontextmanager
@@ -15,4 +15,4 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(lifespan=lifespan)
-app.include_router(ws_router)
+app.include_router(api_router)

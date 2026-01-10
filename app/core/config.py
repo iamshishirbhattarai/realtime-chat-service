@@ -9,8 +9,10 @@ class Settings(BaseSettings):
     redis_port: int
 
     jwt_secret_key: str
+    jwt_refresh_secret_key: str
     jwt_algorithm: str
     jwt_access_token_expire_minutes: int
+    jwt_refresh_token_expire_minutes: int
 
     postgres_url: str
 
