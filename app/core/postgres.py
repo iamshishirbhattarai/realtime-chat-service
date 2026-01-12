@@ -7,7 +7,6 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
-
 engine: AsyncEngine = create_async_engine(
     settings.postgres_url, echo=True, future=True
 )

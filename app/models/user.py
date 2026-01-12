@@ -1,10 +1,9 @@
+from datetime import datetime, timezone
 from uuid import uuid4
 
-from datetime import datetime, timezone
-
-from sqlalchemy import Column, String, UUID as SQLAlchemyUUID, DateTime
+from sqlalchemy import UUID as SQLAlchemyUUID
+from sqlalchemy import Column, DateTime, String
 from sqlalchemy.orm import declarative_base
-
 
 Base = declarative_base()
 

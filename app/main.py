@@ -1,8 +1,9 @@
 from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
-from app.core.pubsub import init_pubsub, shutdown_pubsub
 from app.api.router import router as api_router
+from app.core.pubsub import init_pubsub, shutdown_pubsub
 
 
 @asynccontextmanager

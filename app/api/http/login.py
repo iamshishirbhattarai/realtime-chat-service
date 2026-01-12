@@ -12,7 +12,6 @@ from app.core.auth import (
 from app.core.postgres import get_db
 from app.models.user import User
 
-
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
