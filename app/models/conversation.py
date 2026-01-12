@@ -1,15 +1,16 @@
-from uuid import uuid4
 from datetime import datetime, timezone
+from uuid import uuid4
 
 from sqlalchemy import (
-    Column,
-    String,
     UUID as SQLAlchemyUUID,
+)
+from sqlalchemy import (
+    Column,
     DateTime,
     ForeignKey,
+    String,
 )
 from sqlalchemy.orm import declarative_base, relationship
-
 
 Base = declarative_base()
 

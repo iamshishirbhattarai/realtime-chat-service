@@ -1,4 +1,3 @@
-from typing import Dict, Set
 from logging import getLogger
 
 from fastapi import WebSocket
@@ -10,7 +9,7 @@ logger = getLogger(__name__)
 
 class ConversationManager:
     def __init__(self):
-        self.conversations: Dict[str, Set[WebSocket]] = {}
+        self.conversations: dict[str, set[WebSocket]] = {}
 
     def create_conversation(self, conversation_id: str):
         if conversation_id not in self.conversations:

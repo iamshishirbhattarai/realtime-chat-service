@@ -1,4 +1,3 @@
-from app.models.user import User, Base
-
+from app.models.user import Base, User
 
 __all__ = ["Base", "User"]
