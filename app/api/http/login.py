@@ -17,8 +17,8 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 @router.post("/signup")
 async def signup(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
+    form_data: OAuth2PasswordRequestForm = Depends(),  # noqa: B008, FBT001
+    db: Session = Depends(get_db),  # noqa: B008
 ):
     result = await db.execute(
         select(User).filter(User.email == form_data.username)
@@ -43,8 +43,8 @@ async def signup(
 
 @router.post("/login")
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
-    db: Session = Depends(get_db),
+    form_data: OAuth2PasswordRequestForm = Depends(),  # noqa: B008
+    db: Session = Depends(get_db),  # noqa: B008
 ):
     result = await db.execute(
         select(User).where(User.email == form_data.username)
