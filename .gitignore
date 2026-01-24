@@ -1,6 +1,6 @@
 # Byte-compiled / optimized / DLL files
 __pycache__/
-*.py[codz]
+*.py[cod]
 *$py.class
 
 # C extensions
@@ -135,7 +135,7 @@ celerybeat.pid
 *.sage.py
 
 # Environments
-.env
+.env*
 .envrc
 .venv
 env/
@@ -152,7 +152,7 @@ venv.bak/
 .ropeproject
 
 # mkdocs documentation
-/site
+site/
 
 # mypy
 .mypy_cache/
@@ -206,5 +206,43 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# Virtual environment file
-.venv
+
+# frontend/.gitignore
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+node_modules/
+.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+coverage/
+
+# next.js
+.next/
+out/
+
+# production
+# /build  already included above
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
