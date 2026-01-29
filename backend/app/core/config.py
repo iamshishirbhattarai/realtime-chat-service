@@ -16,6 +16,8 @@ class Settings(BaseSettings):
 
     postgres_url: str
 
+    cors_origins: list[str] = []
+
     class Config:
         env_file = ".env"
 
