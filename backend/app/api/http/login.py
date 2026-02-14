@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.auth import (
     create_access_token,
     create_refresh_token,
+    decode_refresh_token,
     hash_password,
     verify_password,
 )
@@ -65,5 +66,27 @@ async def login(
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
+
+
+@router.post("/refresh")
+async def refresh_token(
+    refresh_token: str,
+):
+    payload = decode_refresh_token(refresh_token)
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+
+    new_access_token = create_access_token(subject=user_id)
+    new_refresh_token = create_refresh_token(subject=user_id)
+
+    return {
+        "access_token": new_access_token,
+        "refresh_token": new_refresh_token,
         "token_type": "bearer",
     }
