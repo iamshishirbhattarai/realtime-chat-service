@@ -45,50 +45,73 @@ const SignUpForm = () => {
     }
   };
   return (
-    <div className="w-fit border grid place-items-center ">
-      <h1 className="text-center">SignUpForm</h1>
-      {generalError && <p className="text-red-500">{generalError}</p>}
-      <form
-        onSubmit={handleSubmit}
-        className="flex flex-col gap-4 w-fit px-4 py-4"
-      >
-        <input
-          type="text"
-          placeholder="username"
-          value={username}
-          onChange={(e) => {
-            setUsername(e.target.value);
-            if (fieldErrors.userName) {
-              setFieldErrors((prev) => ({ ...prev, userName: undefined }));
-            }
-          }}
-          className="w-40 border rounded-sm p-2"
-        />
-        {fieldErrors.userName && (
-          <p className="text-red-500">{fieldErrors.userName}</p>
+    <div className="flex-1 w-full grid place-items-center">
+      <div className="w-full max-w-md mx-auto my-auto ">
+        <h1 className="text-center font-bold text-4xl text-[#1a1b1b] tracking-tight">
+          Welcome to TryChat
+        </h1>
+        <p className="text-center text-[#767676] font-medium mt-2 mb-5">
+          {" "}
+          A practice to implement a real time chat service
+        </p>
+        {generalError && (
+          <p className="text-center text-red-600 mb-2">{generalError}</p>
         )}
-        <input
-          type="password"
-          placeholder="password"
-          value={password}
-          onChange={(e) => {
-            setPassword(e.target.value);
-            if (fieldErrors.password) {
-              setFieldErrors((prev) => ({ ...prev, password: undefined }));
-            }
-          }}
-          className="w-40 border rounded-sm p-2"
-        />
-        {fieldErrors.password && (
-          <p className="text-red-500">{fieldErrors.password}</p>
-        )}
-        <button
-          type="submit"
-          className="w-40 border rounded-sm p-2 cursor-pointer"
+
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col gap-5 px-4 py-4 mx-auto"
         >
-          Sign Up
-        </button>
-      </form>
+          <div className="flex flex-col gap-2">
+            <label htmlFor="username" className="text-[#1f1f1f] font-medium">
+              Email
+            </label>
+            <input
+              type="text"
+              id="username"
+              placeholder="Enter Your Username"
+              value={username}
+              onChange={(e) => {
+                setUsername(e.target.value);
+                if (fieldErrors.userName) {
+                  setFieldErrors((prev) => ({ ...prev, userName: undefined }));
+                }
+              }}
+              className="w-full border border-[#d5d5d5] rounded-lg p-2"
+            />
+            {fieldErrors.userName && (
+              <p className="text-red-600">{fieldErrors.userName}</p>
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <label htmlFor="password" className="text-[#1f1f1f]">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              placeholder="Enter Your Password"
+              value={password}
+              onChange={(e) => {
+                setPassword(e.target.value);
+                if (fieldErrors.password) {
+                  setFieldErrors((prev) => ({ ...prev, password: undefined }));
+                }
+              }}
+              className="w-full border border-[#d5d5d5] rounded-lg p-2"
+            />
+            {fieldErrors.password && (
+              <p className="text-red-600">{fieldErrors.password}</p>
+            )}
+          </div>
+          <button
+            type="submit"
+            className="w-full border rounded-lg p-2 cursor-pointer bg-[#181a1c] text-white mt-2"
+          >
+            Sign Up{" "}
+          </button>
+        </form>
+      </div>
     </div>
   );
 };
