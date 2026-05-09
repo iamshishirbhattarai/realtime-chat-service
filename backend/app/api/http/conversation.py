@@ -39,7 +39,18 @@ async def create_conversation(
             detail="Direct conversations require exactly one participant",
         )
 
-    all_participant_ids = set(body.participant_ids) | {UUID(current_user.id)}
+    current_user_uuid = UUID(current_user.id)
+    all_participant_ids = set(body.participant_ids) | {current_user_uuid}
+
+    # reject self-conversation
+    if (
+        body.type == ConversationType.DIRECT
+        and body.participant_ids[0] == current_user_uuid
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot create a direct conversation with yourself",
+        )
 
     # validate all participant UUIDs exist
     result = await db.execute(
@@ -53,6 +64,27 @@ async def create_conversation(
             detail=f"Users not found: {[str(m) for m in missing]}",
         )
 
+    # reject duplicate direct conversations
+    if body.type == ConversationType.DIRECT:
+        other_user_id = body.participant_ids[0]
+        existing = await db.execute(
+            select(Conversation.id)
+            .join(ConversationParticipant)
+            .where(
+                Conversation.type == ConversationType.DIRECT,
+                ConversationParticipant.user_id == current_user_uuid,
+                Conversation.id.in_(
+                    select(ConversationParticipant.conversation_id)
+                    .where(ConversationParticipant.user_id == other_user_id)
+                ),
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Direct conversation with this user already exists",
+            )
+
     conversation = Conversation(type=body.type, name=body.name)
     db.add(conversation)
     await db.flush()
@@ -62,15 +94,7 @@ async def create_conversation(
             conversation_id=conversation.id, user_id=pid
         ))
 
-    try:
-        await db.commit()
-    except IntegrityError as err:
-        await db.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Conversation with these participants already exists",
-        ) from err
-
+    await db.commit()
     await db.refresh(conversation)
     return conversation
 
@@ -134,7 +158,6 @@ async def add_participant(
             detail="Group conversation not found",
         )
 
-    # verify requester is already a member
     member = await db.execute(
         select(ConversationParticipant).where(
             ConversationParticipant.conversation_id == conversation_id,
@@ -147,7 +170,6 @@ async def add_participant(
             detail="Not a participant of this conversation",
         )
 
-    # validate target user exists
     if not await db.get(User, user_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

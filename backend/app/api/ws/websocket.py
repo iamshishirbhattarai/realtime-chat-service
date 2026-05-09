@@ -9,12 +9,18 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.api.ws.rooms import ConversationManager
 from app.core.auth import decode_access_token
 from app.core.postgres import AsyncSessionLocal
-from app.core.redis import get_pubsub, set_user_offline, set_user_online
+from app.core.redis import (
+    get_pubsub,
+    refresh_user_presence,
+    set_user_offline,
+    set_user_online,
+)
 from app.models.conversation import ConversationParticipant
 from app.models.message import Message
 from app.schemas.ws import (
@@ -65,8 +71,11 @@ async def websocket_endpoint(
             data = await websocket.receive_text()
             try:
                 event = WSIncomingEvent.model_validate_json(data)
-            except Exception:
+            except ValidationError:
+                logger.debug("Invalid WS payload from %s: %s", user_uuid, data)
                 continue
+
+            await refresh_user_presence(str(user_uuid))
 
             if event.type in (WSEventType.TYPING, WSEventType.STOP_TYPING):
                 await room_manager.publish(
@@ -101,6 +110,8 @@ async def websocket_endpoint(
                 )
 
     except WebSocketDisconnect:
+        pass
+    finally:
         await room_manager.leave_conversation(conv_id_str, websocket)
         await set_user_offline(str(user_uuid))
         await room_manager.publish(

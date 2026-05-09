@@ -19,8 +19,15 @@ async def is_token_blacklisted(token: str) -> bool:
     return await redis_client.exists(f"blacklist:{token}") > 0
 
 
+PRESENCE_TTL = 60  # seconds
+
+
 async def set_user_online(user_id: str) -> None:
-    await redis_client.set(f"presence:{user_id}", "1")
+    await redis_client.setex(f"presence:{user_id}", PRESENCE_TTL, "1")
+
+
+async def refresh_user_presence(user_id: str) -> None:
+    await redis_client.expire(f"presence:{user_id}", PRESENCE_TTL)
 
 
 async def set_user_offline(user_id: str) -> None:

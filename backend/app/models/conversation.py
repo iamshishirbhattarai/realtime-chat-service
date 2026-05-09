@@ -9,7 +9,6 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     String,
-    UniqueConstraint,
 )
 from sqlalchemy.orm import relationship
 
@@ -45,11 +44,6 @@ class Conversation(Base):
 
 class ConversationParticipant(Base):
     __tablename__ = "conversation_participants"
-    __table_args__ = (
-        UniqueConstraint(
-            "conversation_id", "user_id", name="uq_participant"
-        ),
-    )
 
     conversation_id = Column(
         SQLAlchemyUUID(as_uuid=True),
