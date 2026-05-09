@@ -3,9 +3,9 @@ from uuid import uuid4
 
 from sqlalchemy import UUID as SQLAlchemyUUID
 from sqlalchemy import Column, DateTime, String
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import relationship
 
-Base = declarative_base()
+from app.db.base_class import Base
 
 
 class User(Base):
@@ -19,3 +19,8 @@ class User(Base):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+
+    conversations = relationship(
+        "ConversationParticipant", back_populates="user"
+    )
+    messages = relationship("Message", back_populates="sender")

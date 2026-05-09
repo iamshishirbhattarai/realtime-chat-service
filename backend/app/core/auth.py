@@ -1,9 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+import jwt
 from fastapi import HTTPException, status
-
-from jose import jwt, ExpiredSignatureError
+from jwt import ExpiredSignatureError, PyJWTError
 from passlib.context import CryptContext
 
 from app.core.config import settings
@@ -19,38 +19,66 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
     return password_context.verify(plain_password, hashed_password)
 
 
-def create_access_token(subject: str | Any, expires_delta: int = None) -> str:
+def create_access_token(
+    subject: str | Any,
+    email: str,
+    expires_delta: int | None = None,
+) -> str:
     if expires_delta:
-        expires_delta = datetime.now(timezone.utc) + timedelta(
-            minutes=expires_delta
-        )
+        expire = datetime.now(timezone.utc) + timedelta(minutes=expires_delta)
     else:
-        expires_delta = datetime.now(timezone.utc) + timedelta(
+        expire = datetime.now(timezone.utc) + timedelta(
             minutes=settings.jwt_access_token_expire_minutes
         )
-    to_encode = {"exp": expires_delta, "sub": str(subject)}
-    encoded_jwt = jwt.encode(
+    to_encode = {"exp": expire, "sub": str(subject), "email": email}
+    return jwt.encode(
         to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
     )
-    return encoded_jwt
 
 
-def create_refresh_token(subject: str | Any, expires_delta: int = None) -> str:
-    if expires_delta:
-        expires_delta = datetime.now(timezone.utc) + timedelta(
-            minutes=expires_delta
+def decode_access_token(token: str) -> dict:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.jwt_secret_key,
+            algorithms=[settings.jwt_algorithm],
         )
+    except ExpiredSignatureError as err:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Access token has expired",
+        ) from err
+    except PyJWTError as err:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access token",
+        ) from err
+
+    if not payload.get("sub"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid access token: missing subject",
+        )
+
+    return payload
+
+
+def create_refresh_token(
+    subject: str | Any,
+    expires_delta: int | None = None,
+) -> str:
+    if expires_delta:
+        expire = datetime.now(timezone.utc) + timedelta(minutes=expires_delta)
     else:
-        expires_delta = datetime.now(timezone.utc) + timedelta(
+        expire = datetime.now(timezone.utc) + timedelta(
             minutes=settings.jwt_refresh_token_expire_minutes
         )
-    to_encode = {"exp": expires_delta, "sub": str(subject)}
-    encoded_jwt = jwt.encode(
+    to_encode = {"exp": expire, "sub": str(subject)}
+    return jwt.encode(
         to_encode,
         settings.jwt_refresh_secret_key,
         algorithm=settings.jwt_algorithm,
     )
-    return encoded_jwt
 
 
 def decode_refresh_token(token: str) -> dict:
@@ -65,14 +93,13 @@ def decode_refresh_token(token: str) -> dict:
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Refresh token has expired",
         ) from err
-    except jwt.JWTError as err:
+    except PyJWTError as err:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token",
         ) from err
 
-    sub = payload.get("sub")
-    if not sub:
+    if not payload.get("sub"):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid refresh token: missing subject",

@@ -1,7 +1,10 @@
+from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
+from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.auth import (
     create_access_token,
@@ -11,15 +14,20 @@ from app.core.auth import (
     verify_password,
 )
 from app.core.postgres import get_db
+from app.core.redis import blacklist_token, is_token_blacklisted
 from app.models.user import User
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+class RefreshRequest(BaseModel):
+    refresh_token: str
+
+
 @router.post("/signup")
 async def signup(
     form_data: OAuth2PasswordRequestForm = Depends(),  # noqa: B008, FBT001
-    db: Session = Depends(get_db),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ):
     result = await db.execute(
         select(User).filter(User.email == form_data.username)
@@ -45,7 +53,7 @@ async def signup(
 @router.post("/login")
 async def login(
     form_data: OAuth2PasswordRequestForm = Depends(),  # noqa: B008
-    db: Session = Depends(get_db),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ):
     result = await db.execute(
         select(User).where(User.email == form_data.username)
@@ -60,7 +68,7 @@ async def login(
             detail="Invalid email or password",
         )
 
-    access_token = create_access_token(subject=user.id)
+    access_token = create_access_token(subject=user.id, email=user.email)
     refresh_token = create_refresh_token(subject=user.id)
 
     return {
@@ -71,18 +79,21 @@ async def login(
 
 
 @router.post("/refresh")
-async def refresh_token(
-    refresh_token: str,
+async def refresh(
+    request: RefreshRequest,
 ):
-    payload = decode_refresh_token(refresh_token)
-    user_id = payload.get("sub")
-    if not user_id:
+    if await is_token_blacklisted(request.refresh_token):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
+            detail="Refresh token has been revoked",
         )
+    payload = decode_refresh_token(request.refresh_token)
+    user_id = payload["sub"]
+    ttl = payload["exp"] - int(datetime.now(timezone.utc).timestamp())
+    await blacklist_token(request.refresh_token, max(ttl, 1))
 
-    new_access_token = create_access_token(subject=user_id)
+    email = payload.get("email", "")
+    new_access_token = create_access_token(subject=user_id, email=email)
     new_refresh_token = create_refresh_token(subject=user_id)
 
     return {
@@ -90,3 +101,13 @@ async def refresh_token(
         "refresh_token": new_refresh_token,
         "token_type": "bearer",
     }
+
+
+@router.post("/logout")
+async def logout(
+    body: RefreshRequest,
+):
+    payload = decode_refresh_token(body.refresh_token)
+    ttl = payload["exp"] - int(datetime.now(timezone.utc).timestamp())
+    await blacklist_token(body.refresh_token, max(ttl, 1))
+    return {"msg": "Logged out successfully"}

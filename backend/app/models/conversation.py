@@ -1,52 +1,71 @@
+import enum
 from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import (
     UUID as SQLAlchemyUUID,
-)
-from sqlalchemy import (
     Column,
     DateTime,
+    Enum,
     ForeignKey,
     String,
+    UniqueConstraint,
 )
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import relationship
 
-Base = declarative_base()
+from app.db.base_class import Base
+
+
+class ConversationType(str, enum.Enum):
+    DIRECT = "direct"
+    GROUP = "group"
 
 
 class Conversation(Base):
     __tablename__ = "conversations"
 
     id = Column(SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid4)
-    user_id = Column(
-        SQLAlchemyUUID(as_uuid=True), ForeignKey("users.id"), nullable=False
-    )
-    title = Column(String, nullable=False)
+    type = Column(Enum(ConversationType), nullable=False)
+    name = Column(String, nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
-    user = relationship("User", back_populates="conversations")
+    participants = relationship(
+        "ConversationParticipant", back_populates="conversation"
+    )
+    messages = relationship(
+        "Message",
+        back_populates="conversation",
+        order_by="Message.created_at",
+    )
 
 
-class Message(Base):
-    __tablename__ = "messages"
+class ConversationParticipant(Base):
+    __tablename__ = "conversation_participants"
+    __table_args__ = (
+        UniqueConstraint(
+            "conversation_id", "user_id", name="uq_participant"
+        ),
+    )
 
-    id = Column(SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid4)
     conversation_id = Column(
         SQLAlchemyUUID(as_uuid=True),
         ForeignKey("conversations.id"),
-        nullable=False,
+        primary_key=True,
     )
-    sender = Column(String, nullable=False)
-    content = Column(String, nullable=False)
-    timestamp = Column(
+    user_id = Column(
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("users.id"),
+        primary_key=True,
+    )
+    joined_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
 
-    conversation = relationship("Conversation", back_populates="messages")
+    conversation = relationship("Conversation", back_populates="participants")
+    user = relationship("User", back_populates="conversations")
