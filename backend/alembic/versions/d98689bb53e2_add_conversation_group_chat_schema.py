@@ -56,4 +56,5 @@ def downgrade() -> None:
     op.drop_table('messages')
     op.drop_table('conversation_participants')
     op.drop_table('conversations')
+    op.execute("DROP TYPE IF EXISTS conversationtype")
     # ### end Alembic commands ###

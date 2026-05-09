@@ -1,5 +1,4 @@
 import asyncio
-import json
 from logging import getLogger
 from uuid import UUID
 
@@ -15,9 +14,16 @@ from sqlalchemy import select
 from app.api.ws.rooms import ConversationManager
 from app.core.auth import decode_access_token
 from app.core.postgres import AsyncSessionLocal
-from app.core.redis import get_pubsub
+from app.core.redis import get_pubsub, set_user_offline, set_user_online
 from app.models.conversation import ConversationParticipant
 from app.models.message import Message
+from app.schemas.ws import (
+    WSEventType,
+    WSIncomingEvent,
+    WSMessageEvent,
+    WSPresenceEvent,
+    WSTypingEvent,
+)
 
 logger = getLogger(__name__)
 room_manager = ConversationManager()
@@ -30,8 +36,7 @@ async def websocket_endpoint(
 ):
     try:
         payload = decode_access_token(token)
-        user_id = payload["sub"]
-        email = payload["email"]
+        user_uuid = UUID(payload["sub"])
     except HTTPException:
         await websocket.close(code=4001)
         return
@@ -40,41 +45,70 @@ async def websocket_endpoint(
         member = await db.execute(
             select(ConversationParticipant).where(
                 ConversationParticipant.conversation_id == conversation_id,
-                ConversationParticipant.user_id == UUID(user_id),
+                ConversationParticipant.user_id == user_uuid,
             )
         )
         if not member.scalar_one_or_none():
             await websocket.close(code=4003)
             return
 
-    await room_manager.join_conversation(conversation_id, websocket)
+    conv_id_str = str(conversation_id)
+    await room_manager.join_conversation(conv_id_str, websocket)
+    await set_user_online(str(user_uuid))
+    await room_manager.publish(
+        conv_id_str,
+        WSPresenceEvent(user_id=user_uuid, status="online").model_dump_json(),
+    )
+
     try:
         while True:
             data = await websocket.receive_text()
+            try:
+                event = WSIncomingEvent.model_validate_json(data)
+            except Exception:
+                continue
 
-            # save message
-            async with AsyncSessionLocal() as db:
-                msg = Message(
-                    conversation_id=conversation_id,
-                    sender_id=user_id,
-                    content=data,
+            if event.type in (WSEventType.TYPING, WSEventType.STOP_TYPING):
+                await room_manager.publish(
+                    conv_id_str,
+                    WSTypingEvent(
+                        type=event.type, user_id=user_uuid
+                    ).model_dump_json(),
                 )
-                db.add(msg)
-                await db.commit()
-                await db.refresh(msg)
 
-            payload_out = json.dumps(
-                {
-                    "sender_id": user_id,
-                    "email": email,
-                    "content": data,
-                    "created_at": msg.created_at.isoformat(),
-                }
-            )
+            elif event.type == WSEventType.MESSAGE:
+                content = (event.content or "").strip()
+                if not content:
+                    continue
 
-            await room_manager.publish(conversation_id, payload_out)
+                async with AsyncSessionLocal() as db:
+                    msg = Message(
+                        conversation_id=conversation_id,
+                        sender_id=user_uuid,
+                        content=content,
+                    )
+                    db.add(msg)
+                    await db.commit()
+                    await db.refresh(msg)
+
+                await room_manager.publish(
+                    conv_id_str,
+                    WSMessageEvent(
+                        user_id=user_uuid,
+                        content=content,
+                        created_at=msg.created_at,
+                    ).model_dump_json(),
+                )
+
     except WebSocketDisconnect:
-        await room_manager.leave_conversation(conversation_id, websocket)
+        await room_manager.leave_conversation(conv_id_str, websocket)
+        await set_user_offline(str(user_uuid))
+        await room_manager.publish(
+            conv_id_str,
+            WSPresenceEvent(
+                user_id=user_uuid, status="offline"
+            ).model_dump_json(),
+        )
 
 
 async def pubsub_listener():
@@ -86,7 +120,6 @@ async def pubsub_listener():
         while True:
             message = await pubsub.get_message(ignore_subscribe_messages=True)
             if message:
-                print("Redis message:", message)  # debug log
                 channel = message["channel"]
                 data = message["data"]
                 conversation_id = channel.replace("conversation:", "")

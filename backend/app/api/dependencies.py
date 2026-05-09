@@ -10,12 +10,17 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 class CurrentUser(BaseModel):
     id: str
     email: str
+    name: str
 
 
 async def get_current_user(
     token: str = Depends(oauth2_scheme),  # noqa: B008
 ) -> CurrentUser:
     payload = decode_access_token(token)
-    if not payload.get("email"):
+    if not payload.get("email") or not payload.get("name"):
         raise HTTPException(status_code=401, detail="Invalid token claims")
-    return CurrentUser(id=payload["sub"], email=payload["email"])
+    return CurrentUser(
+        id=payload["sub"],
+        email=payload["email"],
+        name=payload["name"],
+    )

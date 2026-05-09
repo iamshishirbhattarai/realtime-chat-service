@@ -17,3 +17,15 @@ async def blacklist_token(token: str, ttl: int) -> None:
 
 async def is_token_blacklisted(token: str) -> bool:
     return await redis_client.exists(f"blacklist:{token}") > 0
+
+
+async def set_user_online(user_id: str) -> None:
+    await redis_client.set(f"presence:{user_id}", "1")
+
+
+async def set_user_offline(user_id: str) -> None:
+    await redis_client.delete(f"presence:{user_id}")
+
+
+async def is_user_online(user_id: str) -> bool:
+    return await redis_client.exists(f"presence:{user_id}") > 0

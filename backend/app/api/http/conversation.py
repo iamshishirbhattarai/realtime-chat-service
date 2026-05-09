@@ -2,7 +2,9 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import CurrentUser, get_current_user
 from app.core.postgres import get_db
@@ -12,6 +14,7 @@ from app.models.conversation import (
     ConversationType,
 )
 from app.models.message import Message
+from app.models.user import User
 from app.schemas.conversation import ConversationCreate, ConversationOut
 from app.schemas.message import MessageOut
 
@@ -36,22 +39,38 @@ async def create_conversation(
             detail="Direct conversations require exactly one participant",
         )
 
-    conversation = Conversation(
-        type=body.type,
-        name=body.name,
-    )
-    db.add(conversation)
-    await db.flush()  # Get conversation.id
-
     all_participant_ids = set(body.participant_ids) | {UUID(current_user.id)}
-    for pid in all_participant_ids:
-        db.add(
-            ConversationParticipant(
-                conversation_id=conversation.id, user_id=pid
-            )
+
+    # validate all participant UUIDs exist
+    result = await db.execute(
+        select(User.id).where(User.id.in_(all_participant_ids))
+    )
+    found_ids = {row[0] for row in result.all()}
+    missing = all_participant_ids - found_ids
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Users not found: {[str(m) for m in missing]}",
         )
 
-    await db.commit()
+    conversation = Conversation(type=body.type, name=body.name)
+    db.add(conversation)
+    await db.flush()
+
+    for pid in all_participant_ids:
+        db.add(ConversationParticipant(
+            conversation_id=conversation.id, user_id=pid
+        ))
+
+    try:
+        await db.commit()
+    except IntegrityError as err:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Conversation with these participants already exists",
+        ) from err
+
     await db.refresh(conversation)
     return conversation
 
@@ -64,10 +83,10 @@ async def list_conversations(
     result = await db.execute(
         select(Conversation)
         .join(ConversationParticipant)
-        .filter(ConversationParticipant.user_id == UUID(current_user.id))
+        .where(ConversationParticipant.user_id == UUID(current_user.id))
+        .options(selectinload(Conversation.participants))
     )
-    conversations = result.scalars().all()
-    return conversations
+    return result.scalars().all()
 
 
 @router.get("/{conversation_id}/messages", response_model=list[MessageOut])
@@ -99,7 +118,8 @@ async def list_messages(
 
 
 @router.post(
-    "/{conversation_id}/participants", status_code=status.HTTP_204_NO_CONTENT
+    "/{conversation_id}/participants",
+    status_code=status.HTTP_204_NO_CONTENT,
 )
 async def add_participant(
     conversation_id: UUID,
@@ -114,9 +134,34 @@ async def add_participant(
             detail="Group conversation not found",
         )
 
-    db.add(
-        ConversationParticipant(
-            conversation_id=conversation_id, user_id=user_id
+    # verify requester is already a member
+    member = await db.execute(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conversation_id,
+            ConversationParticipant.user_id == UUID(current_user.id),
         )
     )
-    await db.commit()
+    if not member.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this conversation",
+        )
+
+    # validate target user exists
+    if not await db.get(User, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    db.add(ConversationParticipant(
+        conversation_id=conversation_id, user_id=user_id
+    ))
+    try:
+        await db.commit()
+    except IntegrityError as err:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already a participant",
+        ) from err

@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -20,33 +21,34 @@ from app.models.user import User
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
+class SignupRequest(BaseModel):
+    name: str
+    email: str
+    password: str
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
 
-@router.post("/signup")
+@router.post("/signup", status_code=status.HTTP_201_CREATED)
 async def signup(
-    form_data: OAuth2PasswordRequestForm = Depends(),  # noqa: B008, FBT001
+    body: SignupRequest,
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ):
-    result = await db.execute(
-        select(User).filter(User.email == form_data.username)
-    )
-    existing_user = result.scalar_one_or_none()
-    if existing_user is not None:
+    result = await db.execute(select(User).where(User.email == body.email))
+    if result.scalar_one_or_none():
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Email already registered",
         )
 
-    new_user = User(
-        email=form_data.username,
-        hashed_password=hash_password(form_data.password),
-    )
-    db.add(new_user)
+    db.add(User(
+        name=body.name,
+        email=body.email,
+        hashed_password=hash_password(body.password),
+    ))
     await db.commit()
-    await db.refresh(new_user)
-
     return {"msg": "User created successfully"}
 
 
@@ -68,7 +70,9 @@ async def login(
             detail="Invalid email or password",
         )
 
-    access_token = create_access_token(subject=user.id, email=user.email)
+    access_token = create_access_token(
+        subject=user.id, email=user.email, name=user.name
+    )
     refresh_token = create_refresh_token(subject=user.id)
 
     return {
@@ -81,6 +85,7 @@ async def login(
 @router.post("/refresh")
 async def refresh(
     request: RefreshRequest,
+    db: AsyncSession = Depends(get_db),  # noqa: B008
 ):
     if await is_token_blacklisted(request.refresh_token):
         raise HTTPException(
@@ -92,9 +97,17 @@ async def refresh(
     ttl = payload["exp"] - int(datetime.now(timezone.utc).timestamp())
     await blacklist_token(request.refresh_token, max(ttl, 1))
 
-    email = payload.get("email", "")
-    new_access_token = create_access_token(subject=user_id, email=email)
-    new_refresh_token = create_refresh_token(subject=user_id)
+    user = await db.get(User, UUID(user_id))
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User not found",
+        )
+
+    new_access_token = create_access_token(
+        subject=user.id, email=user.email, name=user.name
+    )
+    new_refresh_token = create_refresh_token(subject=user.id)
 
     return {
         "access_token": new_access_token,
@@ -104,9 +117,7 @@ async def refresh(
 
 
 @router.post("/logout")
-async def logout(
-    body: RefreshRequest,
-):
+async def logout(body: RefreshRequest):
     payload = decode_refresh_token(body.refresh_token)
     ttl = payload["exp"] - int(datetime.now(timezone.utc).timestamp())
     await blacklist_token(body.refresh_token, max(ttl, 1))

@@ -22,6 +22,7 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 def create_access_token(
     subject: str | Any,
     email: str,
+    name: str,
     expires_delta: int | None = None,
 ) -> str:
     if expires_delta:
@@ -30,7 +31,12 @@ def create_access_token(
         expire = datetime.now(timezone.utc) + timedelta(
             minutes=settings.jwt_access_token_expire_minutes
         )
-    to_encode = {"exp": expire, "sub": str(subject), "email": email}
+    to_encode = {
+        "exp": expire,
+        "sub": str(subject),
+        "email": email,
+        "name": name,
+    }
     return jwt.encode(
         to_encode, settings.jwt_secret_key, algorithm=settings.jwt_algorithm
     )

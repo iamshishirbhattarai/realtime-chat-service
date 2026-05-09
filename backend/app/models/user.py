@@ -12,6 +12,7 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid4)
+    name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
     created_at = Column(
