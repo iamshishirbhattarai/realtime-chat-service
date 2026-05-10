@@ -14,6 +14,7 @@ from sqlalchemy import select
 
 from app.api.ws.rooms import ConversationManager
 from app.core.auth import decode_access_token
+from app.core.minio import generate_presigned_get_url
 from app.core.postgres import AsyncSessionLocal
 from app.core.redis import (
     get_pubsub,
@@ -21,8 +22,10 @@ from app.core.redis import (
     set_user_offline,
     set_user_online,
 )
+from app.models.attachment import Attachment
 from app.models.conversation import ConversationParticipant
 from app.models.message import Message
+from app.schemas.attachment import AttachmentOut
 from app.schemas.ws import (
     WSEventType,
     WSIncomingEvent,
@@ -87,7 +90,7 @@ async def websocket_endpoint(
 
             elif event.type == WSEventType.MESSAGE:
                 content = (event.content or "").strip()
-                if not content:
+                if not content and not event.attachment_ids:
                     continue
 
                 async with AsyncSessionLocal() as db:
@@ -97,14 +100,40 @@ async def websocket_endpoint(
                         content=content,
                     )
                     db.add(msg)
+                    await db.flush()
+
+                    attachment_outs = []
+                    if event.attachment_ids:
+                        result = await db.execute(
+                            select(Attachment).where(
+                                Attachment.id.in_(event.attachment_ids),
+                                Attachment.uploader_id == user_uuid,
+                                Attachment.message_id.is_(None),
+                            )
+                        )
+                        for att in result.scalars().all():
+                            att.message_id = msg.id
+                            attachment_outs.append(
+                                AttachmentOut(
+                                    id=att.id,
+                                    filename=att.filename,
+                                    content_type=att.content_type,
+                                    size=att.size,
+                                    download_url=generate_presigned_get_url(att.object_key),
+                                    created_at=att.created_at,
+                                )
+                            )
+
                     await db.commit()
                     await db.refresh(msg)
 
                 await room_manager.publish(
                     conv_id_str,
                     WSMessageEvent(
+                        message_id=msg.id,
                         user_id=user_uuid,
                         content=content,
+                        attachments=attachment_outs,
                         created_at=msg.created_at,
                     ).model_dump_json(),
                 )

@@ -29,3 +29,6 @@ class Message(Base):
 
     conversation = relationship("Conversation", back_populates="messages")
     sender = relationship("User", back_populates="messages")
+    attachments = relationship(
+        "Attachment", back_populates="message", cascade="all, delete-orphan"
+    )
