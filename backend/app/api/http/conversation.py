@@ -1,0 +1,219 @@
+from uuid import UUID
+
+from app.core.minio import generate_presigned_get_url
+from app.schemas.attachment import AttachmentOut
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from app.api.dependencies import CurrentUser, get_current_user
+from app.core.postgres import get_db
+from app.models.conversation import (
+    Conversation,
+    ConversationParticipant,
+    ConversationType,
+)
+from app.models.message import Message
+from app.models.user import User
+from app.schemas.conversation import ConversationCreate, ConversationOut
+from app.schemas.message import MessageOut
+
+router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+@router.post("/", response_model=ConversationOut)
+async def create_conversation(
+    body: ConversationCreate,
+    current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    if body.type == ConversationType.GROUP and not body.name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Group conversations require a name",
+        )
+
+    if body.type == ConversationType.DIRECT and len(body.participant_ids) != 1:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Direct conversations require exactly one participant",
+        )
+
+    current_user_uuid = UUID(current_user.id)
+    all_participant_ids = set(body.participant_ids) | {current_user_uuid}
+
+    # reject self-conversation
+    if (
+        body.type == ConversationType.DIRECT
+        and body.participant_ids[0] == current_user_uuid
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot create a direct conversation with yourself",
+        )
+
+    # validate all participant UUIDs exist
+    result = await db.execute(
+        select(User.id).where(User.id.in_(all_participant_ids))
+    )
+    found_ids = {row[0] for row in result.all()}
+    missing = all_participant_ids - found_ids
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Users not found: {[str(m) for m in missing]}",
+        )
+
+    # reject duplicate direct conversations
+    if body.type == ConversationType.DIRECT:
+        other_user_id = body.participant_ids[0]
+        existing = await db.execute(
+            select(Conversation.id)
+            .join(ConversationParticipant)
+            .where(
+                Conversation.type == ConversationType.DIRECT,
+                ConversationParticipant.user_id == current_user_uuid,
+                Conversation.id.in_(
+                    select(ConversationParticipant.conversation_id).where(
+                        ConversationParticipant.user_id == other_user_id
+                    )
+                ),
+            )
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Direct conversation with this user already exists",
+            )
+
+    conversation = Conversation(type=body.type, name=body.name)
+    db.add(conversation)
+    await db.flush()
+
+    for pid in all_participant_ids:
+        db.add(
+            ConversationParticipant(
+                conversation_id=conversation.id, user_id=pid
+            )
+        )
+
+    await db.commit()
+    await db.refresh(conversation)
+    return conversation
+
+
+@router.get("/", response_model=list[ConversationOut])
+async def list_conversations(
+    current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    result = await db.execute(
+        select(Conversation)
+        .join(ConversationParticipant)
+        .where(ConversationParticipant.user_id == UUID(current_user.id))
+        .options(selectinload(Conversation.participants))
+    )
+    return result.scalars().all()
+
+
+@router.get("/{conversation_id}/messages", response_model=list[MessageOut])
+async def list_messages(
+    conversation_id: UUID,
+    limit: int = 50,
+    current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+) -> list[MessageOut]:
+    member = await db.execute(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conversation_id,
+            ConversationParticipant.user_id == UUID(current_user.id),
+        )
+    )
+    if not member.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this conversation",
+        )
+
+    result = await db.execute(
+        select(Message)
+        .where(Message.conversation_id == conversation_id)
+        .options(selectinload(Message.attachments))
+        .order_by(Message.created_at.desc())
+        .limit(limit)
+    )
+    messages = result.scalars().all()
+
+    return [
+        MessageOut(
+            id=msg.id,
+            conversation_id=msg.conversation_id,
+            sender_id=msg.sender_id,
+            content=msg.content,
+            created_at=msg.created_at,
+            attachments=[
+                AttachmentOut(
+                    id=att.id,
+                    filename=att.filename,
+                    content_type=att.content_type,
+                    size=att.size,
+                    download_url=generate_presigned_get_url(att.object_key),
+                    created_at=att.created_at,
+                )
+                for att in msg.attachments
+            ],
+        )
+        for msg in messages
+    ]
+
+
+@router.post(
+    "/{conversation_id}/participants",
+    status_code=status.HTTP_204_NO_CONTENT,
+)
+async def add_participant(
+    conversation_id: UUID,
+    user_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    conv = await db.get(Conversation, conversation_id)
+    if not conv or conv.type != ConversationType.GROUP:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Group conversation not found",
+        )
+
+    member = await db.execute(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conversation_id,
+            ConversationParticipant.user_id == UUID(current_user.id),
+        )
+    )
+    if not member.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this conversation",
+        )
+
+    if not await db.get(User, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
+    db.add(
+        ConversationParticipant(
+            conversation_id=conversation_id, user_id=user_id
+        )
+    )
+    try:
+        await db.commit()
+    except IntegrityError as err:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already a participant",
+        ) from err
