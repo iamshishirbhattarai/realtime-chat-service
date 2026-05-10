@@ -6,7 +6,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import CurrentUser, get_current_user
-from app.core.minio import generate_presigned_put_url, generate_presigned_get_url, remove_object
+from app.core.minio import generate_presigned_put_url, remove_object
 from app.core.postgres import get_db
 from app.core.redis import is_user_online
 from app.models.user import User

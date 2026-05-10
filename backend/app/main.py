@@ -1,5 +1,9 @@
+import asyncio
 from contextlib import asynccontextmanager
+from pathlib import Path
 
+from alembic import command
+from alembic.config import Config
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -8,15 +12,19 @@ from app.core.config import settings
 from app.core.minio import ensure_bucket_exists
 from app.core.pubsub import init_pubsub, shutdown_pubsub
 
+_ALEMBIC_CFG = Config(Path(__file__).parent.parent / "alembic.ini")
+
+
+def _run_migrations() -> None:
+    command.upgrade(_ALEMBIC_CFG, "head")
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Ensure MinIO bucket exists
+    await asyncio.to_thread(_run_migrations)
     ensure_bucket_exists()
-    # Initialize PubSub on startup
     await init_pubsub(app)
     yield
-    # Shutdown PubSub on shutdown
     await shutdown_pubsub(app)
 
 

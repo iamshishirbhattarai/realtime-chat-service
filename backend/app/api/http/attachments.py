@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, status
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import CurrentUser, get_current_user
@@ -23,7 +25,9 @@ async def presign_upload(
     body: PresignUploadRequest,
     current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
 ):
-    object_key, upload_url = generate_presigned_put_url(body.filename)
+    object_key, upload_url = generate_presigned_put_url(
+        body.filename, prefix=current_user.id
+    )
     return PresignUploadResponse(object_key=object_key, upload_url=upload_url)
 
 
@@ -37,8 +41,14 @@ async def confirm_upload(
     current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ):
+    if not body.object_key.startswith(f"{current_user.id}/"):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Invalid object key",
+        )
+
     attachment = Attachment(
-        uploader_id=current_user.id,
+        uploader_id=UUID(current_user.id),
         object_key=body.object_key,
         filename=body.filename,
         content_type=body.content_type,

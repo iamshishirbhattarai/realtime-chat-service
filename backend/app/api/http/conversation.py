@@ -17,7 +17,6 @@ from app.models.conversation import (
 )
 from app.models.message import Message
 from app.models.user import User
-from app.models.attachment import Attachment
 from app.schemas.conversation import ConversationCreate, ConversationOut
 from app.schemas.message import MessageOut
 
