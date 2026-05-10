@@ -5,11 +5,14 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.router import router as api_router
 from app.core.config import settings
+from app.core.minio import ensure_bucket_exists
 from app.core.pubsub import init_pubsub, shutdown_pubsub
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # Ensure MinIO bucket exists
+    ensure_bucket_exists()
     # Initialize PubSub on startup
     await init_pubsub(app)
     yield

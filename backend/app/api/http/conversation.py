@@ -1,5 +1,7 @@
 from uuid import UUID
 
+from app.core.minio import generate_presigned_get_url
+from app.schemas.attachment import AttachmentOut
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -15,6 +17,7 @@ from app.models.conversation import (
 )
 from app.models.message import Message
 from app.models.user import User
+from app.models.attachment import Attachment
 from app.schemas.conversation import ConversationCreate, ConversationOut
 from app.schemas.message import MessageOut
 
@@ -74,8 +77,9 @@ async def create_conversation(
                 Conversation.type == ConversationType.DIRECT,
                 ConversationParticipant.user_id == current_user_uuid,
                 Conversation.id.in_(
-                    select(ConversationParticipant.conversation_id)
-                    .where(ConversationParticipant.user_id == other_user_id)
+                    select(ConversationParticipant.conversation_id).where(
+                        ConversationParticipant.user_id == other_user_id
+                    )
                 ),
             )
         )
@@ -90,9 +94,11 @@ async def create_conversation(
     await db.flush()
 
     for pid in all_participant_ids:
-        db.add(ConversationParticipant(
-            conversation_id=conversation.id, user_id=pid
-        ))
+        db.add(
+            ConversationParticipant(
+                conversation_id=conversation.id, user_id=pid
+            )
+        )
 
     await db.commit()
     await db.refresh(conversation)
@@ -135,10 +141,33 @@ async def list_messages(
     result = await db.execute(
         select(Message)
         .where(Message.conversation_id == conversation_id)
+        .options(selectinload(Message.attachments))
         .order_by(Message.created_at.desc())
         .limit(limit)
     )
-    return result.scalars().all()
+    messages = result.scalars().all()
+
+    return [
+        MessageOut(
+            id=msg.id,
+            conversation_id=msg.conversation_id,
+            sender_id=msg.sender_id,
+            content=msg.content,
+            created_at=msg.created_at,
+            attachments=[
+                AttachmentOut(
+                    id=att.id,
+                    filename=att.filename,
+                    content_type=att.content_type,
+                    size=att.size,
+                    download_url=generate_presigned_get_url(att.object_key),
+                    created_at=att.created_at,
+                )
+                for att in msg.attachments
+            ],
+        )
+        for msg in messages
+    ]
 
 
 @router.post(
@@ -176,9 +205,11 @@ async def add_participant(
             detail="User not found",
         )
 
-    db.add(ConversationParticipant(
-        conversation_id=conversation_id, user_id=user_id
-    ))
+    db.add(
+        ConversationParticipant(
+            conversation_id=conversation_id, user_id=user_id
+        )
+    )
     try:
         await db.commit()
     except IntegrityError as err:

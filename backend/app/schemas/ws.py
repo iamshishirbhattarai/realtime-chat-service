@@ -4,6 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel
 
+from app.schemas.attachment import AttachmentOut
+
 
 class WSEventType(str, enum.Enum):
     MESSAGE = "message"
@@ -15,12 +17,15 @@ class WSEventType(str, enum.Enum):
 class WSIncomingEvent(BaseModel):
     type: WSEventType
     content: str | None = None
+    attachment_ids: list[UUID] = []
 
 
 class WSMessageEvent(BaseModel):
     type: WSEventType = WSEventType.MESSAGE
+    message_id: UUID
     user_id: UUID
     content: str
+    attachments: list[AttachmentOut] = []
     created_at: datetime
 
 

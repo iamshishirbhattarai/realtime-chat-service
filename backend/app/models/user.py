@@ -15,6 +15,7 @@ class User(Base):
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
     hashed_password = Column(String, nullable=False)
+    avatar_url = Column(String, nullable=True)
     created_at = Column(
         DateTime(timezone=True),
         default=lambda: datetime.now(timezone.utc),
@@ -25,3 +26,4 @@ class User(Base):
         "ConversationParticipant", back_populates="user"
     )
     messages = relationship("Message", back_populates="sender")
+    attachments = relationship("Attachment", back_populates="uploader")
