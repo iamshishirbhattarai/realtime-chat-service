@@ -14,7 +14,7 @@ class User(Base):
     id = Column(SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid4)
     name = Column(String, nullable=False)
     email = Column(String, unique=True, index=True, nullable=False)
-    hashed_password = Column(String, nullable=False)
+    hashed_password = Column(String, nullable=True)
     avatar_url = Column(String, nullable=True)
     created_at = Column(
         DateTime(timezone=True),
@@ -27,3 +27,6 @@ class User(Base):
     )
     messages = relationship("Message", back_populates="sender")
     attachments = relationship("Attachment", back_populates="uploader")
+    oauth_accounts = relationship(
+        "UserOAuthAccount", back_populates="user", cascade="all, delete-orphan"
+    )

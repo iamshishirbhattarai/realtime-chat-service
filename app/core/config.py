@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     minio_bucket: str
     minio_secure: bool = False
 
+    google_client_id: str
+    google_client_secret: str
+    google_redirect_uri: str
+
     cors_origins: list[str] = []
 
     class Config:
