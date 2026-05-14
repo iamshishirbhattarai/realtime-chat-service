@@ -40,6 +40,20 @@ async def search_users(
     return result.scalars().all()
 
 
+@router.get("/me", response_model=UserOut)
+async def get_me(
+    current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    user = await db.get(User, UUID(current_user.id))
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+    return user
+
+
 @router.patch("/me", response_model=UserOut)
 async def update_profile(
     body: UserUpdate,
