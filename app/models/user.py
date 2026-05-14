@@ -30,3 +30,8 @@ class User(Base):
     oauth_accounts = relationship(
         "UserOAuthAccount", back_populates="user", cascade="all, delete-orphan"
     )
+    notification_tokens = relationship(
+        "NotificationToken",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )

@@ -28,6 +28,8 @@ class Settings(BaseSettings):
 
     cors_origins: list[str] = []
 
+    firebase_credentials_path: str
+
     class Config:
         env_file = ".env"
 

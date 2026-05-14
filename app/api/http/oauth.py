@@ -88,7 +88,9 @@ async def google_callback(
 
         userinfo_resp = await client.get(
             _GOOGLE_USERINFO_URL,
-            headers={"Authorization": f"Bearer {token_resp.json()['access_token']}"},
+            headers={
+                "Authorization": f"Bearer {token_resp.json()['access_token']}"
+            },
         )
         if userinfo_resp.status_code != 200:
             raise HTTPException(

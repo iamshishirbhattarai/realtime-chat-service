@@ -33,6 +33,7 @@ from app.schemas.ws import (
     WSPresenceEvent,
     WSTypingEvent,
 )
+from app.services.push_notification import send_chat_push_for_message
 
 logger = getLogger(__name__)
 room_manager = ConversationManager()
@@ -119,7 +120,9 @@ async def websocket_endpoint(
                                     filename=att.filename,
                                     content_type=att.content_type,
                                     size=att.size,
-                                    download_url=generate_presigned_get_url(att.object_key),
+                                    download_url=generate_presigned_get_url(
+                                        att.object_key
+                                    ),
                                     created_at=att.created_at,
                                 )
                             )
