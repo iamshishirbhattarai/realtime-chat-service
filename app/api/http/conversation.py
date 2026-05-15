@@ -18,7 +18,11 @@ from app.models.conversation import (
 from app.models.message import Message
 from app.models.user import User
 from app.schemas.attachment import AttachmentOut
-from app.schemas.conversation import ConversationCreate, ConversationOut
+from app.schemas.conversation import (
+    ConversationCreate,
+    ConversationOut,
+    MarkReadRequest,
+)
 from app.schemas.message import MessageOut
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -235,3 +239,33 @@ async def add_participant(
             status_code=status.HTTP_409_CONFLICT,
             detail="User is already a participant",
         ) from err
+
+
+@router.post("/{conversation_id}/read", status_code=status.HTTP_204_NO_CONTENT)
+async def mark_conversation_read(
+    conversation_id: UUID,
+    body: MarkReadRequest,
+    current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    msg = await db.get(Message, body.last_read_message_id)
+    if not msg or msg.conversation_id != conversation_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid last_read_message_id",
+        )
+    member = await db.execute(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conversation_id,
+            ConversationParticipant.user_id == UUID(current_user.id),
+        )
+    )
+    member = member.scalar_one_or_none()
+    if not member:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this conversation",
+        )
+
+    member.last_read_message_id = body.last_read_message_id
+    await db.commit()

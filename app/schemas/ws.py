@@ -12,12 +12,14 @@ class WSEventType(str, enum.Enum):
     TYPING = "typing"
     STOP_TYPING = "stop_typing"
     PRESENCE = "presence"
+    READ = "read"
 
 
 class WSIncomingEvent(BaseModel):
     type: WSEventType
     content: str | None = None
     attachment_ids: list[UUID] = Field(default_factory=list)
+    last_read_message_id: UUID | None = None
 
 
 class WSMessageEvent(BaseModel):
@@ -30,7 +32,7 @@ class WSMessageEvent(BaseModel):
 
 
 class WSTypingEvent(BaseModel):
-    type: WSEventType
+    type: WSEventType = WSEventType.TYPING
     user_id: UUID
 
 
@@ -38,3 +40,10 @@ class WSPresenceEvent(BaseModel):
     type: WSEventType = WSEventType.PRESENCE
     user_id: UUID
     status: str
+
+
+class WSReadEvent(BaseModel):
+    type: WSEventType = WSEventType.READ
+    user_id: UUID
+    conversation_id: UUID
+    last_read_message_id: UUID

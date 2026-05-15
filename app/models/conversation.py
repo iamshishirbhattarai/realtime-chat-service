@@ -60,6 +60,11 @@ class ConversationParticipant(Base):
         default=lambda: datetime.now(timezone.utc),
         nullable=False,
     )
+    last_read_message_id = Column(
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("messages.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     conversation = relationship("Conversation", back_populates="participants")
     user = relationship("User", back_populates="conversations")
