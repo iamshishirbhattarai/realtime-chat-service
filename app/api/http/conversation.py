@@ -1,14 +1,14 @@
+from datetime import datetime
 from uuid import UUID
 
-from app.core.minio import generate_presigned_get_url
-from app.schemas.attachment import AttachmentOut
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.api.dependencies import CurrentUser, get_current_user
+from app.core.minio import generate_presigned_get_url
 from app.core.postgres import get_db
 from app.models.conversation import (
     Conversation,
@@ -17,6 +17,7 @@ from app.models.conversation import (
 )
 from app.models.message import Message
 from app.models.user import User
+from app.schemas.attachment import AttachmentOut
 from app.schemas.conversation import ConversationCreate, ConversationOut
 from app.schemas.message import MessageOut
 
@@ -122,6 +123,8 @@ async def list_conversations(
 async def list_messages(
     conversation_id: UUID,
     limit: int = 50,
+    before: datetime | None = None,
+    before_id: UUID | None = None,
     current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ) -> list[MessageOut]:
@@ -137,13 +140,28 @@ async def list_messages(
             detail="Not a participant of this conversation",
         )
 
-    result = await db.execute(
+    query = (
         select(Message)
         .where(Message.conversation_id == conversation_id)
         .options(selectinload(Message.attachments))
-        .order_by(Message.created_at.desc())
+        .order_by(Message.created_at.desc(), Message.id.desc())
         .limit(limit)
     )
+
+    if before and before_id:
+        query = query.where(
+            or_(
+                Message.created_at < before,
+                and_(
+                    Message.created_at == before,
+                    Message.id < before_id,
+                ),
+            )
+        )
+    elif before:
+        query = query.where(Message.created_at < before)
+
+    result = await db.execute(query)
     messages = result.scalars().all()
 
     return [

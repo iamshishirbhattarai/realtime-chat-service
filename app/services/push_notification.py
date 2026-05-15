@@ -2,32 +2,49 @@ import asyncio
 from uuid import UUID
 
 from firebase_admin import messaging
-from sqlalchemy import select
+from firebase_admin.exceptions import FirebaseError
+from sqlalchemy import delete, select
 
 from app.core.firebase import get_firebase_app
 from app.core.postgres import AsyncSessionLocal
-from app.models.conversation import ConversationParticipant
+from app.core.redis import is_user_online
+from app.models.conversation import (
+    Conversation,
+    ConversationParticipant,
+    ConversationType,
+)
 from app.models.notification_token import NotificationToken
 
 
-def _send_push_sync(
+def _send_multicast_sync(
     tokens: list[str],
     title: str,
     body: str,
-    data: dict[str, str] | None = None,
-) -> None:
+    data: dict[str, str],
+) -> list[str]:
     app = get_firebase_app()
 
-    for token in tokens:
-        try:
-            message = messaging.Message(
-                notification=messaging.Notification(title=title, body=body),
-                data=data or {},
-                token=token,
-            )
-            messaging.send(message, app=app)
-        except Exception as e:
+    message = messaging.MulticastMessage(
+        notification=messaging.Notification(title=title, body=body),
+        data=data,
+        tokens=tokens,
+    )
+    response = messaging.send_each_for_multicast(message, app=app)
+
+    dead_tokens: list[str] = []
+    for token, resp in zip(tokens, response.responses, strict=True):
+        if resp.success:
             continue
+        exc = resp.exception
+        if isinstance(exc, messaging.UnregisteredError):
+            dead_tokens.append(token)
+            continue
+        if isinstance(exc, FirebaseError) and exc.code in (
+            "INVALID_ARGUMENT",
+            "NOT_FOUND",
+        ):
+            dead_tokens.append(token)
+    return dead_tokens
 
 
 async def send_chat_push_for_message(
@@ -38,19 +55,26 @@ async def send_chat_push_for_message(
     content: str,
 ) -> None:
     async with AsyncSessionLocal() as db:
+        conversation = await db.get(Conversation, conversation_id)
+        if not conversation:
+            return
+
         participant_rows = await db.execute(
-            select(ConversationParticipant).where(
+            select(ConversationParticipant.user_id).where(
                 ConversationParticipant.conversation_id == conversation_id,
                 ConversationParticipant.user_id != sender_id,
             )
         )
-        receipent_ids = [row[0] for row in participant_rows.all()]
-        if not receipent_ids:
+        recipient_ids = [row[0] for row in participant_rows.all()]
+        recipient_ids = [
+            uid for uid in recipient_ids if not await is_user_online(str(uid))
+        ]
+        if not recipient_ids:
             return
 
         token_rows = await db.execute(
             select(NotificationToken.token).where(
-                NotificationToken.user_id.in_(receipent_ids)
+                NotificationToken.user_id.in_(recipient_ids)
             )
         )
         tokens = list({row[0] for row in token_rows.all()})
@@ -58,11 +82,19 @@ async def send_chat_push_for_message(
     if not tokens:
         return
 
-    body = content.strip() or "Sent an attachment"
-    await asyncio.to_thread(
-        _send_push_sync,
+    message_body = content.strip() or "Sent an attachment"
+
+    if conversation.type == ConversationType.GROUP and conversation.name:
+        title = conversation.name
+        body = f"{sender_name}: {message_body}"
+    else:
+        title = sender_name
+        body = message_body
+
+    dead_tokens = await asyncio.to_thread(
+        _send_multicast_sync,
         tokens,
-        sender_name,
+        title,
         body,
         {
             "type": "chat_message",
@@ -71,3 +103,11 @@ async def send_chat_push_for_message(
             "sender_id": str(sender_id),
         },
     )
+    if dead_tokens:
+        async with AsyncSessionLocal() as db:
+            await db.execute(
+                delete(NotificationToken).where(
+                    NotificationToken.token.in_(dead_tokens)
+                )
+            )
+            await db.commit()

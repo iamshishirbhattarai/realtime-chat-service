@@ -26,7 +26,9 @@ def ensure_bucket_exists() -> None:
         client.make_bucket(settings.minio_bucket)
 
 
-def generate_presigned_put_url(filename: str, prefix: str | None = None) -> tuple[str, str]:
+def generate_presigned_put_url(
+    filename: str, prefix: str | None = None
+) -> tuple[str, str]:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     file_id = str(uuid4())
     name = f"{file_id}.{ext}" if ext else file_id
