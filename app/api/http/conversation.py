@@ -248,6 +248,12 @@ async def mark_conversation_read(
     current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ):
+    msg = await db.get(Message, body.last_read_message_id)
+    if not msg or msg.conversation_id != conversation_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid last_read_message_id",
+        )
     member = await db.execute(
         select(ConversationParticipant).where(
             ConversationParticipant.conversation_id == conversation_id,

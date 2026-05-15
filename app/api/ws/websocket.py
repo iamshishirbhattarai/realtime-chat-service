@@ -90,9 +90,12 @@ async def websocket_endpoint(
                     ).model_dump_json(),
                 )
             elif event.type == WSEventType.READ:
-                if not event.message_id:
+                if not event.last_read_message_id:
                     continue
                 async with AsyncSessionLocal() as db:
+                    msg = await db.get(Message, event.last_read_message_id)
+                    if not msg or msg.conversation_id != conversation_id:
+                        continue
                     participant = await db.execute(
                         select(ConversationParticipant).where(
                             ConversationParticipant.conversation_id
@@ -102,16 +105,16 @@ async def websocket_endpoint(
                     )
                     p = participant.scalar_one_or_none()
                     if p:
-                        p.last_read_message_id = event.message_id
+                        p.last_read_message_id = event.last_read_message_id
                         await db.commit()
-                await room_manager.publish(
-                    conv_id_str,
-                    WSReadEvent(
-                        user_id=user_uuid,
-                        conversation_id=conversation_id,
-                        last_read_message_id=event.message_id,
-                    ).model_dump_json(),
-                )
+                        await room_manager.publish(
+                            conv_id_str,
+                            WSReadEvent(
+                                user_id=user_uuid,
+                                conversation_id=conversation_id,
+                                last_read_message_id=event.last_read_message_id,
+                            ).model_dump_json(),
+                        )
             elif event.type == WSEventType.MESSAGE:
                 content = (event.content or "").strip()
                 if not content and not event.attachment_ids:

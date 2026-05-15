@@ -19,7 +19,7 @@ class WSIncomingEvent(BaseModel):
     type: WSEventType
     content: str | None = None
     attachment_ids: list[UUID] = Field(default_factory=list)
-    message_id: UUID | None = None
+    last_read_message_id: UUID | None = None
 
 
 class WSMessageEvent(BaseModel):
