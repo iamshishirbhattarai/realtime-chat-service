@@ -31,6 +31,7 @@ from app.schemas.ws import (
     WSIncomingEvent,
     WSMessageEvent,
     WSPresenceEvent,
+    WSReadEvent,
     WSTypingEvent,
 )
 from app.services.push_notification import send_chat_push_for_message
@@ -88,7 +89,29 @@ async def websocket_endpoint(
                         type=event.type, user_id=user_uuid
                     ).model_dump_json(),
                 )
-
+            elif event.type == WSEventType.READ:
+                if not event.message_id:
+                    continue
+                async with AsyncSessionLocal() as db:
+                    participant = await db.execute(
+                        select(ConversationParticipant).where(
+                            ConversationParticipant.conversation_id
+                            == conversation_id,
+                            ConversationParticipant.user_id == user_uuid,
+                        )
+                    )
+                    p = participant.scalar_one_or_none()
+                    if p:
+                        p.last_read_message_id = event.message_id
+                        await db.commit()
+                await room_manager.publish(
+                    conv_id_str,
+                    WSReadEvent(
+                        user_id=user_uuid,
+                        conversation_id=conversation_id,
+                        last_read_message_id=event.message_id,
+                    ).model_dump_json(),
+                )
             elif event.type == WSEventType.MESSAGE:
                 content = (event.content or "").strip()
                 if not content and not event.attachment_ids:

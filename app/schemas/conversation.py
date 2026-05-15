@@ -14,9 +14,14 @@ class ConversationCreate(BaseModel):
     ]  # for direct: one id; for group: one or more
 
 
+class MarkReadRequest(BaseModel):
+    last_read_message_id: uuid.UUID
+
+
 class ParticipantOut(BaseModel):
     user_id: uuid.UUID
     joined_at: datetime
+    last_read_message_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
 
