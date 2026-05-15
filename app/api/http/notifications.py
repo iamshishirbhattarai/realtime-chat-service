@@ -1,5 +1,4 @@
 from datetime import datetime, timezone
-from uuid import uuid4
 
 from fastapi import APIRouter, Depends, status
 from sqlalchemy import delete, select
@@ -27,7 +26,6 @@ async def upsert_notification_token(
     result = await db.execute(
         select(NotificationToken).where(
             NotificationToken.token == body.token,
-            NotificationToken.user_id == current_user.id,
         )
     )
     existing = result.scalar_one_or_none()
@@ -49,7 +47,7 @@ async def upsert_notification_token(
     await db.commit()
 
 
-@router.delete("/token", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/tokens", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_notification_token(
     body: NotificationTokenDeleteRequest,
     current_user: CurrentUser = Depends(get_current_user),  # noqa: B008

@@ -140,16 +140,18 @@ async def websocket_endpoint(
                         created_at=msg.created_at,
                     ).model_dump_json(),
                 )
-                asyncio.create_task(
-                    send_chat_push_for_message(
-                        conversation_id=conversation_id,
-                        message_id=msg.id,
-                        sender_id=user_uuid,
-                        sender_name=payload.get("name", "Unknown"),
-                        content=content,
+                try:
+                    asyncio.create_task(
+                        send_chat_push_for_message(
+                            conversation_id=conversation_id,
+                            message_id=msg.id,
+                            sender_id=user_uuid,
+                            sender_name=payload.get("name", "Unknown"),
+                            content=content,
+                        )
                     )
-                )
-
+                except Exception as e:
+                    logger.error(f"Failed to send push notification: {e}")
     except WebSocketDisconnect:
         pass
     finally:

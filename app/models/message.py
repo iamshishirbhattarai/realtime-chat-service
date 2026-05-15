@@ -12,9 +12,10 @@ class Message(Base):
     __tablename__ = "messages"
     __table_args__ = (
         Index(
-            "ix_messages_conversation_created_at",
+            "ix_messages_conversation_created_at_id",
             "conversation_id",
             "created_at",
+            "id",
         ),
     )
 
