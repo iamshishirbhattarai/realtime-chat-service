@@ -35,3 +35,15 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
     )
+    contacts = relationship(
+        "Contact",
+        foreign_keys="[Contact.user_id]",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    blocked_contacts = relationship(
+        "BlockedContact",
+        foreign_keys="[BlockedContact.user_id]",
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )

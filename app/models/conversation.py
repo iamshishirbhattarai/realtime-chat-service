@@ -20,11 +20,21 @@ class ConversationType(str, enum.Enum):
     GROUP = "group"
 
 
+class ConversationStatus(str, enum.Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+
+
 class Conversation(Base):
     __tablename__ = "conversations"
 
     id = Column(SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid4)
     type = Column(Enum(ConversationType), nullable=False)
+    status = Column(
+        Enum(ConversationStatus, values_callable=lambda x: [e.value for e in x]),
+        nullable=False,
+        default=ConversationStatus.ACCEPTED,
+    )
     name = Column(String, nullable=True)
     created_at = Column(
         DateTime(timezone=True),

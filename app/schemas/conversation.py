@@ -20,10 +20,24 @@ class MarkReadRequest(BaseModel):
 
 class ParticipantOut(BaseModel):
     user_id: uuid.UUID
+    name: str = ""
+    email: str = ""
+    avatar_url: str | None = None
     joined_at: datetime
     last_read_message_id: uuid.UUID | None = None
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_participant(cls, p: object) -> "ParticipantOut":
+        return cls(
+            user_id=p.user_id,
+            name=p.user.name if p.user else "",
+            email=p.user.email if p.user else "",
+            avatar_url=p.user.avatar_url if p.user else None,
+            joined_at=p.joined_at,
+            last_read_message_id=p.last_read_message_id,
+        )
 
 
 class ConversationOut(BaseModel):
@@ -34,3 +48,13 @@ class ConversationOut(BaseModel):
     participants: list[ParticipantOut]
 
     model_config = {"from_attributes": True}
+
+    @classmethod
+    def from_conversation(cls, c: object) -> "ConversationOut":
+        return cls(
+            id=c.id,
+            type=c.type,
+            name=c.name,
+            created_at=c.created_at,
+            participants=[ParticipantOut.from_participant(p) for p in c.participants],
+        )

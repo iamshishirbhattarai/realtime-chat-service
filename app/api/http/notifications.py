@@ -32,12 +32,14 @@ async def upsert_notification_token(
 
     if existing:
         existing.user_id = current_user.id
+        existing.device_id = body.device_id
         existing.platform = body.platform
         existing.last_seen_at = now
     else:
         new_token = NotificationToken(
             user_id=current_user.id,
             token=body.token,
+            device_id=body.device_id,
             platform=body.platform,
             created_at=now,
             last_seen_at=now,

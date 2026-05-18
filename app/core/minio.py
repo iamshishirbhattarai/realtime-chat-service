@@ -1,3 +1,4 @@
+import json
 from datetime import timedelta
 from uuid import uuid4
 
@@ -25,14 +26,36 @@ def ensure_bucket_exists() -> None:
     if not client.bucket_exists(settings.minio_bucket):
         client.make_bucket(settings.minio_bucket)
 
+    # Make avatars/ prefix publicly readable so stored URLs never expire.
+    public_policy = {
+        "Version": "2012-10-17",
+        "Statement": [
+            {
+                "Effect": "Allow",
+                "Principal": {"AWS": ["*"]},
+                "Action": ["s3:GetObject"],
+                "Resource": [f"arn:aws:s3:::{settings.minio_bucket}/avatars/*"],
+            }
+        ],
+    }
+    client.set_bucket_policy(settings.minio_bucket, json.dumps(public_policy))
+
+
+def _make_object_key(filename: str, prefix: str | None) -> str:
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    name = f"{uuid4()}.{ext}" if ext else str(uuid4())
+    return f"{prefix}/{name}" if prefix else name
+
+
+def avatar_public_url(object_key: str) -> str:
+    scheme = "https" if settings.minio_secure else "http"
+    return f"{scheme}://{settings.minio_endpoint}/{settings.minio_bucket}/{object_key}"
+
 
 def generate_presigned_put_url(
     filename: str, prefix: str | None = None
 ) -> tuple[str, str]:
-    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-    file_id = str(uuid4())
-    name = f"{file_id}.{ext}" if ext else file_id
-    object_key = f"{prefix}/{name}" if prefix else name
+    object_key = _make_object_key(filename, prefix)
     url = get_minio_client().presigned_put_object(
         settings.minio_bucket,
         object_key,
