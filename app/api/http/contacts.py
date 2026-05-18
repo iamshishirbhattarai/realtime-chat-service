@@ -2,11 +2,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import CurrentUser, get_current_user
 from app.core.postgres import get_db
 from app.models.contact import BlockedContact, Contact
+from app.models.user import User
 from app.schemas.contact import ContactOut
 
 router = APIRouter(prefix="/contacts", tags=["contacts"])
@@ -44,8 +46,23 @@ async def block_user(
     current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
     db: AsyncSession = Depends(get_db),  # noqa: B008
 ):
+    if user_id == UUID(current_user.id):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot block yourself",
+        )
+
+    if not await db.get(User, user_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
+
     db.add(BlockedContact(user_id=current_user.id, blocked_user_id=user_id))
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
 
 
 @router.delete(

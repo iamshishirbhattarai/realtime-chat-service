@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import CurrentUser, get_current_user
-from app.core.minio import avatar_public_url, generate_presigned_put_url, remove_object
+from app.core.minio import avatar_public_url, generate_presigned_put_url, object_key_from_public_url, remove_object
 from app.core.postgres import get_db
 from app.core.redis import is_user_online
 from app.models.user import User
@@ -103,8 +103,13 @@ async def confirm_avatar_upload(
 ):
     user = await db.get(User, UUID(current_user.id))
 
-    if user.avatar_url and not user.avatar_url.startswith("http"):
-        remove_object(user.avatar_url)
+    if user.avatar_url:
+        old_key = (
+            object_key_from_public_url(user.avatar_url)
+            if user.avatar_url.startswith("http")
+            else user.avatar_url
+        )
+        remove_object(old_key)
 
     # Store the permanent public URL — avatars/ is publicly readable via bucket policy.
     user.avatar_url = avatar_public_url(body.object_key)

@@ -360,6 +360,18 @@ async def accept_conversation_request(
             detail="Conversation request not found",
         )
 
+    member = await db.execute(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conversation_id,
+            ConversationParticipant.user_id == UUID(current_user.id),
+        )
+    )
+    if not member.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this conversation",
+        )
+
     participants = await db.execute(
         select(ConversationParticipant.user_id).where(
             ConversationParticipant.conversation_id == conversation_id

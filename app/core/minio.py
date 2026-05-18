@@ -25,20 +25,19 @@ def ensure_bucket_exists() -> None:
     client = get_minio_client()
     if not client.bucket_exists(settings.minio_bucket):
         client.make_bucket(settings.minio_bucket)
-
-    # Make avatars/ prefix publicly readable so stored URLs never expire.
-    public_policy = {
-        "Version": "2012-10-17",
-        "Statement": [
-            {
-                "Effect": "Allow",
-                "Principal": {"AWS": ["*"]},
-                "Action": ["s3:GetObject"],
-                "Resource": [f"arn:aws:s3:::{settings.minio_bucket}/avatars/*"],
-            }
-        ],
-    }
-    client.set_bucket_policy(settings.minio_bucket, json.dumps(public_policy))
+        # Make avatars/ prefix publicly readable so stored URLs never expire.
+        public_policy = {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Principal": {"AWS": ["*"]},
+                    "Action": ["s3:GetObject"],
+                    "Resource": [f"arn:aws:s3:::{settings.minio_bucket}/avatars/*"],
+                }
+            ],
+        }
+        client.set_bucket_policy(settings.minio_bucket, json.dumps(public_policy))
 
 
 def _make_object_key(filename: str, prefix: str | None) -> str:
@@ -50,6 +49,12 @@ def _make_object_key(filename: str, prefix: str | None) -> str:
 def avatar_public_url(object_key: str) -> str:
     scheme = "https" if settings.minio_secure else "http"
     return f"{scheme}://{settings.minio_endpoint}/{settings.minio_bucket}/{object_key}"
+
+
+def object_key_from_public_url(url: str) -> str:
+    prefix = f"/{settings.minio_bucket}/"
+    idx = url.find(prefix)
+    return url[idx + len(prefix):]
 
 
 def generate_presigned_put_url(
