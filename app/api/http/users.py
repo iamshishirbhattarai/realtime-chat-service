@@ -1,12 +1,12 @@
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy import or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.dependencies import CurrentUser, get_current_user
-from app.core.minio import generate_presigned_put_url, remove_object
+from app.core.minio import avatar_public_url, generate_presigned_put_url, object_key_from_public_url, remove_object
 from app.core.postgres import get_db
 from app.core.redis import is_user_online
 from app.models.user import User
@@ -91,7 +91,7 @@ async def presign_avatar_upload(
     body: AvatarPresignRequest,
     _: CurrentUser = Depends(get_current_user),  # noqa: B008
 ):
-    object_key, upload_url = generate_presigned_put_url(body.filename)
+    object_key, upload_url = generate_presigned_put_url(body.filename, prefix="avatars")
     return AvatarPresignResponse(object_key=object_key, upload_url=upload_url)
 
 
@@ -104,11 +104,32 @@ async def confirm_avatar_upload(
     user = await db.get(User, UUID(current_user.id))
 
     if user.avatar_url:
-        remove_object(user.avatar_url)
+        old_key = (
+            object_key_from_public_url(user.avatar_url)
+            if user.avatar_url.startswith("http")
+            else user.avatar_url
+        )
+        remove_object(old_key)
 
-    user.avatar_url = body.object_key
+    # Store the permanent public URL — avatars/ is publicly readable via bucket policy.
+    user.avatar_url = avatar_public_url(body.object_key)
     await db.commit()
     await db.refresh(user)
+    return user
+
+
+@router.get("/{user_id}", response_model=UserOut)
+async def get_user(
+    user_id: UUID,
+    _: CurrentUser = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    user = await db.get(User, user_id)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found",
+        )
     return user
 
 

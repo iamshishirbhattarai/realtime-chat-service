@@ -10,9 +10,14 @@ from sqlalchemy.orm import selectinload
 from app.api.dependencies import CurrentUser, get_current_user
 from app.core.minio import generate_presigned_get_url
 from app.core.postgres import get_db
+from app.models.contact import (
+    BlockedContact,
+    Contact,
+)
 from app.models.conversation import (
     Conversation,
     ConversationParticipant,
+    ConversationStatus,
     ConversationType,
 )
 from app.models.message import Message
@@ -74,6 +79,38 @@ async def create_conversation(
     # reject duplicate direct conversations
     if body.type == ConversationType.DIRECT:
         other_user_id = body.participant_ids[0]
+
+        is_blocked = await db.execute(
+            select(BlockedContact).where(
+                or_(
+                    and_(
+                        BlockedContact.user_id == current_user_uuid,
+                        BlockedContact.blocked_user_id == other_user_id,
+                    ),
+                    and_(
+                        BlockedContact.user_id == other_user_id,
+                        BlockedContact.blocked_user_id == current_user_uuid,
+                    ),
+                )
+            )
+        )
+        if is_blocked.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Cannot send message to this user",
+            )
+
+        is_contact = await db.execute(
+            select(Contact).where(
+                Contact.user_id == current_user_uuid,
+                Contact.contact_id == other_user_id,
+            )
+        )
+        conv_status = (
+            ConversationStatus.ACCEPTED
+            if is_contact.scalar_one_or_none()
+            else ConversationStatus.PENDING
+        )
         existing = await db.execute(
             select(Conversation.id)
             .join(ConversationParticipant)
@@ -92,8 +129,12 @@ async def create_conversation(
                 status_code=status.HTTP_409_CONFLICT,
                 detail="Direct conversation with this user already exists",
             )
+    else:
+        conv_status = ConversationStatus.ACCEPTED
 
-    conversation = Conversation(type=body.type, name=body.name)
+    conversation = Conversation(
+        type=body.type, name=body.name, status=conv_status
+    )
     db.add(conversation)
     await db.flush()
 
@@ -105,8 +146,12 @@ async def create_conversation(
         )
 
     await db.commit()
-    await db.refresh(conversation)
-    return conversation
+    result = await db.execute(
+        select(Conversation)
+        .where(Conversation.id == conversation.id)
+        .options(selectinload(Conversation.participants).selectinload(ConversationParticipant.user))
+    )
+    return ConversationOut.from_conversation(result.scalar_one())
 
 
 @router.get("/", response_model=list[ConversationOut])
@@ -117,10 +162,17 @@ async def list_conversations(
     result = await db.execute(
         select(Conversation)
         .join(ConversationParticipant)
-        .where(ConversationParticipant.user_id == UUID(current_user.id))
-        .options(selectinload(Conversation.participants))
+        .where(
+            ConversationParticipant.user_id == UUID(current_user.id),
+            Conversation.status == ConversationStatus.ACCEPTED,
+        )
+        .options(
+            selectinload(Conversation.participants).selectinload(
+                ConversationParticipant.user
+            )
+        )
     )
-    return result.scalars().all()
+    return [ConversationOut.from_conversation(c) for c in result.scalars().all()]
 
 
 @router.get("/{conversation_id}/messages", response_model=list[MessageOut])
@@ -268,4 +320,69 @@ async def mark_conversation_read(
         )
 
     member.last_read_message_id = body.last_read_message_id
+    await db.commit()
+
+
+@router.get("/requests", response_model=list[ConversationOut])
+async def list_conversation_requests(
+    current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    result = await db.execute(
+        select(Conversation)
+        .join(ConversationParticipant)
+        .where(
+            ConversationParticipant.user_id == UUID(current_user.id),
+            Conversation.status == ConversationStatus.PENDING,
+        )
+        .options(
+            selectinload(Conversation.participants).selectinload(
+                ConversationParticipant.user
+            )
+        )
+    )
+    convos = result.scalars().all()
+    return [ConversationOut.from_conversation(c) for c in convos]
+
+
+@router.post(
+    "/{conversation_id}/accept", status_code=status.HTTP_204_NO_CONTENT
+)
+async def accept_conversation_request(
+    conversation_id: UUID,
+    current_user: CurrentUser = Depends(get_current_user),  # noqa: B008
+    db: AsyncSession = Depends(get_db),  # noqa: B008
+):
+    conv = await db.get(Conversation, conversation_id)
+    if not conv or conv.status != ConversationStatus.PENDING:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Conversation request not found",
+        )
+
+    member = await db.execute(
+        select(ConversationParticipant).where(
+            ConversationParticipant.conversation_id == conversation_id,
+            ConversationParticipant.user_id == UUID(current_user.id),
+        )
+    )
+    if not member.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Not a participant of this conversation",
+        )
+
+    participants = await db.execute(
+        select(ConversationParticipant.user_id).where(
+            ConversationParticipant.conversation_id == conversation_id
+        )
+    )
+    participant_ids = [row[0] for row in participants.all()]
+
+    for uid in participant_ids:
+        for cid in participant_ids:
+            if uid != cid:
+                db.add(Contact(user_id=uid, contact_id=cid))
+
+    conv.status = ConversationStatus.ACCEPTED
     await db.commit()
